@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+env/
+.venv/
+
+# Model checkpoints (büyük dosyalar için git-lfs kullan)
+# outputs/checkpoints/  # 5.3MB olduğu için direkt yüklenebilir
+
+# Dataset (çok büyük)
+data/
+
+# Node.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# Documents
+*.docx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code settings (may contain tokens)
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log

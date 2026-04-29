@@ -21,7 +21,7 @@ interface PredictResponse {
 
 // ─── Sabitler ─────────────────────────────────────────────────────────────────
 
-const API_URL = 'http://localhost:8000/predict'
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/predict'
 
 const CLINICAL_CONFIG = {
   'Kanser Şüphesi': {

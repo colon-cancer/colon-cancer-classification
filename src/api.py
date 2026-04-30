@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from PIL import Image
 from torchvision import transforms
 
-from model import SimpleCancerNet, CLASS_NAMES, CANCER_CLASSES, NORMAL_CLASSES
+from model import EfficientCancerNet, CLASS_NAMES, CANCER_CLASSES, NORMAL_CLASSES
 
 # ─────────────────────────────────────────────
 #  AYARLAR
@@ -28,8 +28,9 @@ from model import SimpleCancerNet, CLASS_NAMES, CANCER_CLASSES, NORMAL_CLASSES
 CHECKPOINT_PATH = Path(__file__).parent.parent / "outputs" / "checkpoints" / "best_model.pt"
 CONFIDENCE_THRESHOLD = 0.70
 
-MEAN = [0.747, 0.540, 0.716]
-STD  = [0.091, 0.137, 0.091]
+# ImageNet normalizasyonu — EfficientNet-B0 pretrained için
+MEAN = [0.485, 0.456, 0.406]
+STD  = [0.229, 0.224, 0.225]
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/tiff", "image/bmp"}
 
@@ -38,8 +39,8 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/tiff", "image/bmp"}
 # ─────────────────────────────────────────────
 
 class AppState:
-    model: SimpleCancerNet = None
-    device: torch.device   = None
+    model: EfficientCancerNet = None
+    device: torch.device      = None
 
 
 state = AppState()
@@ -63,7 +64,7 @@ async def lifespan(app: FastAPI):
     config  = ckpt.get("config", {})
     dropout = config.get("dropout", 0.4)
 
-    state.model = SimpleCancerNet(num_classes=9, dropout=dropout).to(state.device)
+    state.model = EfficientCancerNet(num_classes=9, dropout=dropout).to(state.device)
     state.model.load_state_dict(ckpt["model_state"])
     state.model.eval()
 
@@ -80,7 +81,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Histopatoloji Sınıflandırma API",
-    description="9 sınıflı kolon kanseri doku analizi — SimpleCancerNet",
+    description="9 sınıflı kolon kanseri doku analizi — EfficientNet-B0",
     version="1.0.0",
     lifespan=lifespan,
 )

@@ -1,107 +1,69 @@
 """
-model.py — SimpleCancerNet CNN Mimarisi
-=======================================
+model.py — EfficientNet-B0 Tabanlı Kanser Sınıflandırıcı
+=========================================================
 Mimari:
-  Input  : 224×224×3
-  Block1 : Conv(32, 5×5) → BN → ReLU → MaxPool   → 112×112×32
-  Block2 : Conv(64, 3×3) → BN → ReLU → MaxPool   →  56×56×64
-  Block3 : Conv(128,3×3) → BN → ReLU → MaxPool   →  28×28×128
-  Block4 : Conv(256,3×3) → BN → ReLU → MaxPool   →  14×14×256
-  GAP    : GlobalAveragePooling                   →  256
-  Head   : Dense(256) → ReLU → Dropout(0.4)
-           Dense(9)   → Softmax (inference'ta)
+  Backbone : EfficientNet-B0 (ImageNet pretrained)
+             features → AdaptiveAvgPool2d(1,1) → 1280-dim
+  Head     : Dropout(0.4) → Linear(1280, 9) → raw logit
+
+İki aşamalı eğitim:
+  Faz 1 — freeze_backbone(): sadece head eğitilir
+  Faz 2 — unfreeze_all():    tüm model ince ayar yapılır
 """
 
 import torch
 import torch.nn as nn
-
-
-# ─────────────────────────────────────────────
-#  CONV BLOK — tekrar eden yapı
-# ─────────────────────────────────────────────
-
-class ConvBlock(nn.Module):
-    """
-    Tek conv bloğu:
-      Conv2d → BatchNorm → ReLU → MaxPool
-    """
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=kernel_size,
-                padding=kernel_size // 2,   # padding='same' etkisi
-                bias=False,                 # BN varken bias gereksiz
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # boyutu yarıya indir
-        )
-
-    def forward(self, x):
-        return self.block(x)
+from torchvision import models
 
 
 # ─────────────────────────────────────────────
 #  ANA MODEL
 # ─────────────────────────────────────────────
 
-class SimpleCancerNet(nn.Module):
+class EfficientCancerNet(nn.Module):
     """
-    9 sınıflı histopatoloji CNN classifier.
+    9 sınıflı histopatoloji sınıflandırıcı.
+    EfficientNet-B0 pretrained backbone + özel sınıflandırıcı baş.
 
     Kullanım:
-        model = SimpleCancerNet(num_classes=9)
+        model = EfficientCancerNet(num_classes=9)
         output = model(images)  # [batch, 9] logit döner
     """
 
     def __init__(self, num_classes: int = 9, dropout: float = 0.4):
         super().__init__()
 
-        # ── Feature Extractor ──────────────────
-        self.features = nn.Sequential(
-            ConvBlock(3,   32,  kernel_size=5),  # 224→112  | geniş kernel: doku pattern
-            ConvBlock(32,  64,  kernel_size=3),  # 112→56
-            ConvBlock(64,  128, kernel_size=3),  #  56→28
-            ConvBlock(128, 256, kernel_size=3),  #  28→14
-        )
+        base = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
 
-        # ── Global Average Pooling ─────────────
-        # Flatten yerine GAP: parametre sayısını düşürür, overfit azalır
-        # 14×14×256 → 256
-        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.backbone   = base.features    # Conv blokları — 1280 kanal çıkış
+        self.avgpool    = base.avgpool     # AdaptiveAvgPool2d(1, 1)
 
-        # ── Classifier Head ───────────────────
+        # Orijinal baş atılıyor, yenisi ekleniyor
         self.classifier = nn.Sequential(
-            nn.Flatten(),                        # [B, 256, 1, 1] → [B, 256]
-            nn.Linear(256, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(256, num_classes),         # logit çıktı (softmax yok)
+            nn.Dropout(p=dropout),
+            nn.Linear(1280, num_classes),  # raw logit — CrossEntropyLoss bunu bekler
         )
 
-        # ── Weight Initialization ─────────────
-        self._init_weights()
+        nn.init.xavier_uniform_(self.classifier[1].weight)
+        nn.init.zeros_(self.classifier[1].bias)
 
-    def _init_weights(self):
-        """He initialization — ReLU için optimal."""
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight)
-                nn.init.zeros_(m.bias)
+    def freeze_backbone(self):
+        """Faz 1: backbone dondurulur, sadece head güncellenir."""
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+        for p in self.classifier.parameters():
+            p.requires_grad = True
+
+    def unfreeze_all(self):
+        """Faz 2: tüm model açılır, düşük lr ile ince ayar yapılır."""
+        for p in self.parameters():
+            p.requires_grad = True
 
     def forward(self, x):
-        x = self.features(x)   # conv bloklar
-        x = self.gap(x)        # global average pool
-        x = self.classifier(x) # dense head
-        return x               # raw logit — CrossEntropyLoss bunu bekler
+        x = self.backbone(x)        # [B, 1280, 7, 7]
+        x = self.avgpool(x)         # [B, 1280, 1, 1]
+        x = torch.flatten(x, 1)     # [B, 1280]
+        return self.classifier(x)   # [B, 9]
 
 
 # ─────────────────────────────────────────────
@@ -109,16 +71,16 @@ class SimpleCancerNet(nn.Module):
 # ─────────────────────────────────────────────
 
 CLASS_NAMES = [
-    "Normal", "Tumor", "Stroma", "Lympho",
-    "Complex", "Debris", "Mucosa", "Adipose", "Background"
+    "Normal", "Tümör", "Stroma", "Lenfosit",
+    "Düz Kas", "Debris", "Mukosa", "Adipoz", "Arka Plan"
 ]
 
-# Klinik gruplama
-CANCER_CLASSES    = {1, 4}          # Tumor, Complex
-NORMAL_CLASSES    = {0, 2, 3, 6}    # Normal, Stroma, Lympho, Mucosa
-NONCLINICAL_CLASSES = {5, 7, 8}     # Debris, Adipose, Background
+# Klinik gruplama — MUS (Düz Kas) benign doku, Normal grubunda
+CANCER_CLASSES      = {1}              # Tümör
+NORMAL_CLASSES      = {0, 2, 3, 4, 6}  # Normal, Stroma, Lenfosit, Düz Kas, Mukosa
+NONCLINICAL_CLASSES = {5, 7, 8}        # Debris, Adipoz, Arka Plan
 
-CONFIDENCE_THRESHOLD = 0.70         # altında → "Belirsiz"
+CONFIDENCE_THRESHOLD = 0.70            # altında → "Belirsiz"
 
 
 def predict(model: nn.Module, image_tensor: torch.Tensor, device: torch.device):
@@ -126,7 +88,7 @@ def predict(model: nn.Module, image_tensor: torch.Tensor, device: torch.device):
     Tek görüntü için tahmin yapar.
 
     Args:
-        model        : eğitilmiş SimpleCancerNet
+        model        : eğitilmiş EfficientCancerNet
         image_tensor : [1, 3, 224, 224] normalize edilmiş tensor
         device       : cpu veya cuda
 
@@ -138,13 +100,12 @@ def predict(model: nn.Module, image_tensor: torch.Tensor, device: torch.device):
     """
     model.eval()
     with torch.no_grad():
-        logits = model(image_tensor.to(device))          # [1, 9]
-        probs  = torch.softmax(logits, dim=1)[0]         # [9]
+        logits = model(image_tensor.to(device))   # [1, 9]
+        probs  = torch.softmax(logits, dim=1)[0]  # [9]
         conf, pred = probs.max(dim=0)
-        conf  = conf.item()
-        pred  = pred.item()
+        conf = conf.item()
+        pred = pred.item()
 
-    # Confidence threshold
     if conf < CONFIDENCE_THRESHOLD:
         clinical_group = "Belirsiz"
     elif pred in CANCER_CLASSES:
@@ -171,20 +132,22 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}\n")
 
-    model = SimpleCancerNet(num_classes=9).to(device)
+    model = EfficientCancerNet(num_classes=9).to(device)
 
-    # Parametre sayısı
     total_params = sum(p.numel() for p in model.parameters())
     trainable    = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Toplam parametre   : {total_params:,}")
     print(f"Eğitilebilir param : {trainable:,}")
 
+    # Freeze test
+    model.freeze_backbone()
+    frozen_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Faz 1 (frozen) param: {frozen_trainable:,}")
+
+    model.unfreeze_all()
+
     # Dummy forward pass
     dummy = torch.randn(4, 3, 224, 224).to(device)
     out   = model(dummy)
     print(f"\nInput  shape: {dummy.shape}")
-    print(f"Output shape: {out.shape}")   # [4, 9]
-
-    # Katman özeti
-    print("\n── Model Mimarisi ──")
-    print(model)
+    print(f"Output shape: {out.shape}")  # [4, 9]

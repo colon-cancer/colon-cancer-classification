@@ -22,29 +22,29 @@ from torchvision import transforms
 #  AYARLAR — sadece burası değiştirilir
 # ─────────────────────────────────────────────
 
-DATASET_PATH = r"C:\Users\PC\Desktop\archive\9 Class Colon Cancer Histopathological Image"
+DATASET_PATH = r"C:\Users\PC\Desktop\bitirme\archive\NCT-CRC-HE-100K"
 
-# Klasör adı → sınıf indeksi eşlemesi
+# NCT-CRC-HE-100K klasör adı → sınıf indeksi eşlemesi
 CLASS_MAP = {
-    "1. Normal":     0,
-    "2. Tumor":      1,
-    "3. Stroma":     2,
-    "4. Lympho":     3,
-    "5. Complex":    4,
-    "6. Debris":     5,
-    "7. Mucosa":     6,
-    "8. Adipose":    7,
-    "9. Background": 8,
+    "NORM": 0,   # Normal mukoza
+    "TUM":  1,   # Tümör epiteli
+    "STR":  2,   # Stromal doku
+    "LYM":  3,   # Lenfosit
+    "MUS":  4,   # Düz kas
+    "DEB":  5,   # Debris
+    "MUC":  6,   # Mukus
+    "ADI":  7,   # Yağ dokusu
+    "BACK": 8,   # Arka plan
 }
 
 CLASS_NAMES = [
-    "Normal", "Tumor", "Stroma", "Lympho",
-    "Complex", "Debris", "Mucosa", "Adipose", "Background"
+    "Normal", "Tümör", "Stroma", "Lenfosit",
+    "Düz Kas", "Debris", "Mukosa", "Adipoz", "Arka Plan"
 ]
 
-# Dataset-specific normalization (kendi verisetinden hesaplandı)
-MEAN = [0.747, 0.540, 0.716]
-STD  = [0.091, 0.137, 0.091]
+# ImageNet normalizasyonu — EfficientNet-B0 pretrained backbone için
+MEAN = [0.485, 0.456, 0.406]
+STD  = [0.229, 0.224, 0.225]
 
 # Split oranları
 TRAIN_RATIO = 0.70
@@ -71,7 +71,7 @@ def scan_dataset(dataset_path: str) -> dict:
         if not folder_path.exists():
             print(f"[UYARI] Klasör bulunamadı: {folder_path}")
             continue
-        files = list(folder_path.glob("*.jpg")) + list(folder_path.glob("*.png"))
+        files = list(folder_path.glob("*.tif"))
         data[class_idx] = [str(f) for f in files]
         print(f"  {CLASS_NAMES[class_idx]:12s}: {len(files):6,} görüntü")
 
@@ -131,8 +131,9 @@ def get_transforms(split: str) -> transforms.Compose:
                 brightness=0.2,
                 contrast=0.2,
                 saturation=0.1,
-                hue=0.05
+                hue=0.1,                             # 0.05 → 0.1: farklı boyama protokolleri
             ),
+            transforms.RandomGrayscale(p=0.1),      # boya renk bağımlılığını azaltır
             transforms.ToTensor(),                   # [0,255] → [0,1]
             normalize,
         ])

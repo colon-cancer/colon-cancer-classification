@@ -13,6 +13,8 @@ env/
 # Dataset (çok büyük)
 data/
 archive/
+*.tif
+*.tiff
 
 # Node.js
 frontend/node_modules/

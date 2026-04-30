@@ -27,7 +27,7 @@ from sklearn.metrics import (
 
 # src/ içindeyiz, dataset ve model doğrudan import edilebilir
 from dataset import get_dataloaders, CLASS_NAMES
-from model import SimpleCancerNet
+from model import EfficientCancerNet
 
 # ─────────────────────────────────────────────
 #  AYARLAR
@@ -43,7 +43,7 @@ NUM_WORKERS     = 0   # Windows'ta güvenli
 #  MODEL YÜKLEME
 # ─────────────────────────────────────────────
 
-def load_model(checkpoint_path: Path, device: torch.device) -> SimpleCancerNet:
+def load_model(checkpoint_path: Path, device: torch.device) -> EfficientCancerNet:
     if not checkpoint_path.exists():
         sys.exit(f"[HATA] Checkpoint bulunamadı: {checkpoint_path}")
 
@@ -51,7 +51,7 @@ def load_model(checkpoint_path: Path, device: torch.device) -> SimpleCancerNet:
     config  = ckpt.get("config", {})
     dropout = config.get("dropout", 0.4)
 
-    model = SimpleCancerNet(num_classes=9, dropout=dropout).to(device)
+    model = EfficientCancerNet(num_classes=9, dropout=dropout).to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
 
@@ -67,7 +67,7 @@ def load_model(checkpoint_path: Path, device: torch.device) -> SimpleCancerNet:
 #  INFERENCE
 # ─────────────────────────────────────────────
 
-def run_inference(model: SimpleCancerNet, test_loader, device: torch.device):
+def run_inference(model: EfficientCancerNet, test_loader, device: torch.device):
     all_preds  = []
     all_labels = []
 

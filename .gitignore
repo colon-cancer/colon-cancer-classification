@@ -12,6 +12,7 @@ env/
 
 # Dataset (çok büyük)
 data/
+archive/
 
 # Node.js
 frontend/node_modules/

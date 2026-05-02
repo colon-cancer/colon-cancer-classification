@@ -21,7 +21,10 @@ interface PredictResponse {
 
 // ─── Sabitler ─────────────────────────────────────────────────────────────────
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/predict'
+const API_URL      = process.env.NEXT_PUBLIC_API_URL      ?? 'http://localhost:8000/predict'
+const FEEDBACK_URL = process.env.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL.replace('/predict', '/feedback')
+  : 'http://localhost:8000/feedback'
 
 const CLINICAL_CONFIG = {
   'Kanser Şüphesi': {
@@ -91,14 +94,25 @@ function ProbabilityBar({ label, value, isTop }: { label: string; value: number;
 
 // ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 
+const CLASS_NAMES = [
+  'Normal', 'Tümör', 'Stroma', 'Lenfosit',
+  'Düz Kas', 'Debris', 'Mukosa', 'Adipoz', 'Arka Plan',
+]
+
 export default function Home() {
-  const [isDragging, setIsDragging]   = useState(false)
+  const [isDragging, setIsDragging]     = useState(false)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [imageFile, setImageFile]     = useState<File | null>(null)
-  const [loading, setLoading]         = useState(false)
-  const [result, setResult]           = useState<PredictResponse | null>(null)
-  const [error, setError]             = useState<string | null>(null)
+  const [imageFile, setImageFile]       = useState<File | null>(null)
+  const [loading, setLoading]           = useState(false)
+  const [result, setResult]             = useState<PredictResponse | null>(null)
+  const [error, setError]               = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Feedback state
+  const [showFeedback, setShowFeedback]       = useState(false)
+  const [selectedLabel, setSelectedLabel]     = useState<number | null>(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackMsg, setFeedbackMsg]         = useState<string | null>(null)
 
   const handleFile = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -166,7 +180,34 @@ export default function Home() {
     setImageFile(null)
     setResult(null)
     setError(null)
+    setShowFeedback(false)
+    setSelectedLabel(null)
+    setFeedbackMsg(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleFeedback = async () => {
+    if (!imageFile || selectedLabel === null) return
+    setFeedbackLoading(true)
+    setFeedbackMsg(null)
+    try {
+      const form = new FormData()
+      form.append('file', imageFile)
+      form.append('correct_label', String(selectedLabel))
+      const res = await fetch(FEEDBACK_URL, { method: 'POST', body: form })
+      const data = await res.json()
+      if (data.status === 'fine_tune_başlatıldı') {
+        setFeedbackMsg(`✅ Kaydedildi! ${data.pending} örnek doldu — model güncelleniyor 🔄`)
+      } else {
+        setFeedbackMsg(`✅ Kaydedildi. (${data.pending}/${data.threshold} — ${data.remaining} tane daha gerekli)`)
+      }
+      setShowFeedback(false)
+      setSelectedLabel(null)
+    } catch {
+      setFeedbackMsg('❌ Gönderim başarısız, tekrar dene.')
+    } finally {
+      setFeedbackLoading(false)
+    }
   }
 
   const clinicalCfg = result
@@ -370,6 +411,60 @@ export default function Home() {
                   </div>
                 </div>
               </>
+            )}
+
+            {/* ── Feedback ── */}
+            {result && (
+              <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+                {!showFeedback ? (
+                  <button
+                    onClick={() => setShowFeedback(true)}
+                    className="w-full text-sm text-slate-500 hover:text-slate-700 underline underline-offset-2 transition-colors"
+                  >
+                    Tahmin yanlış mı? Düzelt
+                  </button>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                      Doğru sınıf nedir?
+                    </p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {CLASS_NAMES.map((name, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setSelectedLabel(idx)}
+                          className={`
+                            px-2 py-1.5 rounded-lg text-xs font-medium border transition-all
+                            ${selectedLabel === idx
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-blue-300'}
+                          `}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleFeedback}
+                        disabled={selectedLabel === null || feedbackLoading}
+                        className="flex-1 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {feedbackLoading ? 'Gönderiliyor…' : 'Gönder'}
+                      </button>
+                      <button
+                        onClick={() => { setShowFeedback(false); setSelectedLabel(null) }}
+                        className="px-4 py-2 rounded-lg text-sm font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                      >
+                        İptal
+                      </button>
+                    </div>
+                  </>
+                )}
+                {feedbackMsg && (
+                  <p className="text-xs text-center text-slate-500">{feedbackMsg}</p>
+                )}
+              </div>
             )}
           </div>
         </div>

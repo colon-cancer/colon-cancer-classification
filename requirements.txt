@@ -36,3 +36,6 @@ onnxruntime==1.18.0        # ONNX inference (GPU'suz sunucularda hızlı)
 # Notebook (Colab / Kaggle dışında local çalışıyorsan)
 ipykernel==6.29.4
 ipywidgets==8.1.3
+
+# Feedback & Online Learning
+supabase>=2.0.0

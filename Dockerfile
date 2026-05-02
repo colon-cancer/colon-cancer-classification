@@ -1,23 +1,27 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 # Sistem bağımlılıkları
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 wget && \
+    libgl1 libglib2.0-0 && \
     rm -rf /var/lib/apt/lists/*
 
-# Önce sadece requirements kopyala (layer cache için)
+# CPU-only torch önce yükle (requirements.txt'teki CUDA index'i devre dışı bırakır)
+RUN pip install --no-cache-dir \
+    torch==2.2.2 \
+    torchvision==0.17.2 \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Geri kalan bağımlılıklar
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Uygulama dosyaları
 COPY src/ ./src/
 
-# Model dosyasını GitHub'dan indir
-RUN mkdir -p ./outputs/checkpoints && \
-    wget -q -O ./outputs/checkpoints/best_model.pt \
-    https://github.com/Sarihanbora/colon-cancer-classification/raw/main/outputs/checkpoints/best_model.pt
+# Model dosyası (repoda mevcut)
+COPY outputs/checkpoints/best_model.pt ./outputs/checkpoints/best_model.pt
 
 WORKDIR /app/src
 

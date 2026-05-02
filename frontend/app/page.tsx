@@ -197,9 +197,12 @@ export default function Home() {
       const res = await fetch(FEEDBACK_URL, { method: 'POST', body: form })
       const data = await res.json()
       if (data.status === 'fine_tune_başlatıldı') {
-        setFeedbackMsg(`✅ Kaydedildi! ${data.pending} örnek doldu — model güncelleniyor 🔄`)
+        setFeedbackMsg(`✅ Kaydedildi! ${data.pending ?? '?'} örnek doldu — model güncelleniyor 🔄`)
+      } else if (data.status === 'kaydedildi') {
+        const remaining = data.remaining ?? (data.threshold - data.pending)
+        setFeedbackMsg(`✅ Kaydedildi. (${data.pending}/${data.threshold} — ${remaining ?? '?'} tane daha gerekli)`)
       } else {
-        setFeedbackMsg(`✅ Kaydedildi. (${data.pending}/${data.threshold} — ${data.remaining} tane daha gerekli)`)
+        setFeedbackMsg('✅ Geri bildirim alındı, teşekkürler!')
       }
       setShowFeedback(false)
       setSelectedLabel(null)

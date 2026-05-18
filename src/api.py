@@ -1,11 +1,3 @@
-"""
-api.py — Histopatoloji Inference API
-=====================================
-Çalıştır : uvicorn api:app --reload
-Endpoint  : POST /predict  (multipart/form-data, alan adı: file)
-Döner     : JSON — tahmin, olasılıklar, klinik gruplama
-"""
-
 import io
 import os
 import uuid
@@ -26,10 +18,6 @@ from supabase import create_client, Client
 
 from model import EfficientCancerNet, CLASS_NAMES, CANCER_CLASSES, NORMAL_CLASSES
 
-# ─────────────────────────────────────────────
-#  AYARLAR
-# ─────────────────────────────────────────────
-
 CHECKPOINT_PATH = Path(__file__).parent.parent / "outputs" / "checkpoints" / "best_model.pt"
 CONFIDENCE_THRESHOLD = 0.70
 
@@ -39,10 +27,6 @@ STD  = [0.229, 0.224, 0.225]
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/tiff", "image/bmp"}
 
-# ─────────────────────────────────────────────
-#  SUPABASE & FEEDBACK AYARLARI
-# ─────────────────────────────────────────────
-
 SUPABASE_URL       = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY       = os.environ.get("SUPABASE_KEY", "")
 FEEDBACK_THRESHOLD = int(os.environ.get("FEEDBACK_THRESHOLD", "10"))
@@ -50,17 +34,15 @@ FINE_TUNE_LR       = 1e-4
 FINE_TUNE_EPOCHS   = 10
 BUCKET_NAME        = "feedback-images"
 
-_fine_tuning  = False          # eş zamanlı fine-tune önleme
-_model_lock   = threading.Lock()  # inference ↔ fine-tune güvenliği
+_fine_tuning  = False
+_model_lock   = threading.Lock()
+
 
 def get_supabase() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise HTTPException(503, "Supabase yapılandırılmamış")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ─────────────────────────────────────────────
-#  UYGULAMA DURUMU  (model tek sefer yüklenir)
-# ─────────────────────────────────────────────
 
 class AppState:
     model: EfficientCancerNet = None
@@ -78,7 +60,6 @@ _transform = transforms.Compose([
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ──
     state.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if not CHECKPOINT_PATH.exists():
@@ -96,12 +77,7 @@ async def lifespan(app: FastAPI):
     print(f"Model yüklendi — device={state.device}"
           + (f", val_acc={val_acc:.4f}" if val_acc else ""))
     yield
-    # ── Shutdown ── (temizlik gerekmez)
 
-
-# ─────────────────────────────────────────────
-#  FASTAPI UYGULAMASI
-# ─────────────────────────────────────────────
 
 app = FastAPI(
     title="Histopatoloji Sınıflandırma API",
@@ -120,10 +96,6 @@ app.add_middleware(
 )
 
 
-# ─────────────────────────────────────────────
-#  YARDIMCI
-# ─────────────────────────────────────────────
-
 def clinical_group(class_idx: int, confidence: float) -> str:
     if confidence < CONFIDENCE_THRESHOLD:
         return "Belirsiz"
@@ -134,10 +106,6 @@ def clinical_group(class_idx: int, confidence: float) -> str:
     return "Klinik Dışı"
 
 
-# ─────────────────────────────────────────────
-#  ENDPOINT'LER
-# ─────────────────────────────────────────────
-
 @app.get("/health")
 def health():
     return {
@@ -147,19 +115,11 @@ def health():
     }
 
 
-# ─────────────────────────────────────────────
-#  FEEDBACK ENDPOINT'LERİ
-# ─────────────────────────────────────────────
-
 @app.post("/feedback")
 async def feedback(
     file: UploadFile = File(...),
     correct_label: int = Form(...),
 ):
-    """
-    Kullanıcı düzeltmesini alır, Supabase'e kaydeder.
-    FEEDBACK_THRESHOLD dolunca arka planda fine-tune başlatır.
-    """
     global _fine_tuning
 
     if correct_label not in range(len(CLASS_NAMES)):
@@ -167,7 +127,6 @@ async def feedback(
 
     sb = get_supabase()
 
-    # Görüntüyü JPEG'e dönüştür ve Supabase Storage'a yükle
     raw = await file.read()
     img = Image.open(io.BytesIO(raw)).convert("RGB")
     buf = io.BytesIO()
@@ -181,18 +140,15 @@ async def feedback(
         file_options={"content-type": "image/jpeg"},
     )
 
-    # Metadata'yı DB'ye kaydet
     sb.table("feedback").insert({
         "image_path": img_name,
         "correct_label": correct_label,
         "fine_tuned": False,
     }).execute()
 
-    # Bekleyen örnek sayısını al
     result  = sb.table("feedback").select("id", count="exact").eq("fine_tuned", False).execute()
     pending = result.count or 0
 
-    # Eşiğe ulaşıldıysa ve fine-tune yoksa başlat
     if pending >= FEEDBACK_THRESHOLD and not _fine_tuning:
         t = threading.Thread(target=_run_fine_tune, daemon=True)
         t.start()
@@ -212,7 +168,6 @@ async def feedback(
 
 @app.get("/feedback/status")
 def feedback_status():
-    """Kaç geri bildirim toplandı, fine-tune durumu."""
     sb = get_supabase()
     pending = sb.table("feedback").select("id", count="exact").eq("fine_tuned", False).execute().count or 0
     total   = sb.table("feedback").select("id", count="exact").execute().count or 0
@@ -225,10 +180,6 @@ def feedback_status():
     }
 
 
-# ─────────────────────────────────────────────
-#  FINE-TUNE FONKSİYONU (arka plan thread)
-# ─────────────────────────────────────────────
-
 def _run_fine_tune():
     global _fine_tuning
     if _fine_tuning:
@@ -238,12 +189,11 @@ def _run_fine_tune():
     try:
         sb = get_supabase()
 
-        # İşlenmemiş geri bildirimleri al
         rows = sb.table("feedback").select("*").eq("fine_tuned", False).execute().data
         if not rows:
             return
 
-        print(f"🔄 Fine-tune başlıyor: {len(rows)} örnek")
+        print(f"Fine-tune başlıyor: {len(rows)} örnek")
 
         images, labels, ids = [], [], []
         for row in rows:
@@ -262,7 +212,7 @@ def _run_fine_tune():
 
         # Model kopyası üzerinde çalış — inference kesilmesin
         model_copy = copy.deepcopy(state.model)
-        model_copy.freeze_backbone()          # sadece head güncellenir
+        model_copy.freeze_backbone()
         model_copy.to(state.device)
 
         X = torch.stack(images).to(state.device)
@@ -282,11 +232,9 @@ def _run_fine_tune():
         model_copy.eval()
         model_copy.unfreeze_all()
 
-        # Modeli atomik olarak değiştir
         with _model_lock:
             state.model = model_copy
 
-        # Checkpoint'i güncelle
         torch.save({
             "model_state": state.model.state_dict(),
             "val_acc":  None,
@@ -295,24 +243,22 @@ def _run_fine_tune():
             "config":   {"dropout": 0.4},
         }, CHECKPOINT_PATH)
 
-        print("✅ Fine-tune tamamlandı, model güncellendi")
+        print("Fine-tune tamamlandı, model güncellendi")
 
-        # DB'de işaretle ve Supabase'den görüntüleri sil
         for row_id in ids:
             sb.table("feedback").update({"fine_tuned": True}).eq("id", row_id).execute()
         paths = [r["image_path"] for r in rows if r["id"] in ids]
         sb.storage.from_(BUCKET_NAME).remove(paths)
-        print(f"🗑️  {len(paths)} görüntü Supabase'den silindi")
+        print(f"{len(paths)} görüntü Supabase'den silindi")
 
     except Exception as e:
-        print(f"❌ Fine-tune hatası: {e}")
+        print(f"Fine-tune hatası: {e}")
     finally:
         _fine_tuning = False
 
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(..., description="JPG/PNG histopatoloji görüntüsü")):
-    # ── Dosya tipi kontrolü ──
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=415,
@@ -320,27 +266,23 @@ async def predict(file: UploadFile = File(..., description="JPG/PNG histopatoloj
                    f"Kabul edilenler: {', '.join(ALLOWED_CONTENT_TYPES)}",
         )
 
-    # ── Görüntü yükleme ──
     try:
         raw = await file.read()
         img = Image.open(io.BytesIO(raw)).convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Görüntü okunamadı: {exc}")
 
-    # ── Preprocessing ──
-    tensor = _transform(img).unsqueeze(0).to(state.device)  # [1, 3, 224, 224]
+    tensor = _transform(img).unsqueeze(0).to(state.device)
 
-    # ── Inference ──
     with _model_lock:
         with torch.no_grad():
-            logits = state.model(tensor)                # [1, 9]
-            probs  = F.softmax(logits, dim=1)[0]        # [9]
+            logits = state.model(tensor)
+            probs  = F.softmax(logits, dim=1)[0]
 
     confidence, pred_idx = probs.max(dim=0)
     confidence = confidence.item()
     pred_idx   = pred_idx.item()
 
-    # ── Yanıt ──
     return JSONResponse({
         "prediction": {
             "class_name":      CLASS_NAMES[pred_idx],

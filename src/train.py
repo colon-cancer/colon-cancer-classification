@@ -1,15 +1,3 @@
-"""
-train.py — Eğitim Döngüsü
-==========================
-Özellikler:
-  - İki aşamalı eğitim (freeze → unfreeze)
-  - Class-weighted CrossEntropyLoss
-  - ReduceLROnPlateau scheduler
-  - Early stopping (sadece Faz 2)
-  - En iyi modeli checkpoint olarak kaydet
-  - Loss & Accuracy grafiği
-"""
-
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,31 +13,23 @@ from dataset import get_dataloaders, CLASS_NAMES
 from model import EfficientCancerNet
 
 
-# ─────────────────────────────────────────────
-#  AYARLAR
-# ─────────────────────────────────────────────
-
 CONFIG = {
     "epochs"        : 50,
-    "freeze_epochs" : 5,       # Faz 1 — backbone dondurulmuş epoch sayısı
+    "freeze_epochs" : 5,
     "batch_size"    : 32,
-    "lr"            : 1e-3,    # Faz 1 lr (sadece baş eğitilir)
-    "lr_phase2"     : 1e-4,    # Faz 2 lr (tüm model ince ayar)
+    "lr"            : 1e-3,
+    "lr_phase2"     : 1e-4,
     "weight_decay"  : 1e-4,
     "dropout"       : 0.4,
     "num_workers"   : 4,
-    "patience"      : 7,       # Faz 2 early stopping
+    "patience"      : 7,
     "checkpoint_dir": r"C:\Users\PC\Desktop\bitirme\outputs\checkpoints",
     "plots_dir"     : r"C:\Users\PC\Desktop\bitirme\outputs\plots",
 }
 
 
-# ─────────────────────────────────────────────
-#  CLASS WEIGHT HESAPLA
-# ─────────────────────────────────────────────
-
 def compute_class_weights(train_loader, num_classes: int, device):
-    print("⚖️  Class weight hesaplanıyor...")
+    print("Class weight hesaplanıyor...")
     label_counts = Counter()
     for _, labels in train_loader:
         label_counts.update(labels.tolist())
@@ -64,10 +44,6 @@ def compute_class_weights(train_loader, num_classes: int, device):
     print(f"  Class weights: {[round(w, 3) for w in weights.tolist()]}")
     return weights.to(device)
 
-
-# ─────────────────────────────────────────────
-#  TEK EPOCH — TRAIN
-# ─────────────────────────────────────────────
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
@@ -94,10 +70,6 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
     return total_loss / total, correct / total
 
 
-# ─────────────────────────────────────────────
-#  TEK EPOCH — VALIDATION
-# ─────────────────────────────────────────────
-
 def validate(model, loader, criterion, device):
     model.eval()
     total_loss, correct, total = 0.0, 0, 0
@@ -115,10 +87,6 @@ def validate(model, loader, criterion, device):
 
     return total_loss / total, correct / total
 
-
-# ─────────────────────────────────────────────
-#  GRAFİK KAYDET
-# ─────────────────────────────────────────────
 
 def save_plots(train_losses, val_losses, train_accs, val_accs, plots_dir):
     os.makedirs(plots_dir, exist_ok=True)
@@ -146,12 +114,8 @@ def save_plots(train_losses, val_losses, train_accs, val_accs, plots_dir):
     path = os.path.join(plots_dir, "training_curves.png")
     plt.savefig(path, dpi=150)
     plt.close()
-    print(f"  📊 Grafik kaydedildi: {path}")
+    print(f"  Grafik kaydedildi: {path}")
 
-
-# ─────────────────────────────────────────────
-#  CHECKPOINT KAYDET
-# ─────────────────────────────────────────────
 
 def _save_checkpoint(model, optimizer, epoch, val_loss, val_acc, config):
     ckpt_path = os.path.join(config["checkpoint_dir"], "best_model.pt")
@@ -165,44 +129,34 @@ def _save_checkpoint(model, optimizer, epoch, val_loss, val_acc, config):
     }, ckpt_path)
 
 
-# ─────────────────────────────────────────────
-#  ANA EĞİTİM FONKSİYONU
-# ─────────────────────────────────────────────
-
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🖥️  Device: {device}")
+    print(f"Device: {device}")
     if device.type == "cuda":
         print(f"   GPU: {torch.cuda.get_device_name(0)}\n")
 
     os.makedirs(CONFIG["checkpoint_dir"], exist_ok=True)
     os.makedirs(CONFIG["plots_dir"], exist_ok=True)
 
-    # ── DataLoader ────────────────────────────
     train_loader, val_loader, _ = get_dataloaders(
         batch_size=CONFIG["batch_size"],
         num_workers=CONFIG["num_workers"],
     )
 
-    # ── Model ─────────────────────────────────
     model = EfficientCancerNet(num_classes=9, dropout=CONFIG["dropout"]).to(device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"🧠 Model: EfficientCancerNet (EfficientNet-B0) | {total_params:,} parametre\n")
+    print(f"Model: EfficientCancerNet (EfficientNet-B0) | {total_params:,} parametre\n")
 
-    # ── Loss ──────────────────────────────────
     class_weights = compute_class_weights(train_loader, num_classes=9, device=device)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    # ─────────────────────────────────────────
-    #  FAZ 1 — Backbone dondurulmuş, sadece baş eğitilir
-    # ─────────────────────────────────────────
     print("=" * 65)
-    print(f"FAZ 1: Backbone dondurulmuş — {CONFIG['freeze_epochs']} epoch")
+    print(f"FAZ 1: Backbone dondurulmus — {CONFIG['freeze_epochs']} epoch")
     print("=" * 65)
 
     model.freeze_backbone()
     trainable_p1 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Eğitilebilir parametre: {trainable_p1:,}\n")
+    print(f"  Egitilebilir parametre: {trainable_p1:,}\n")
 
     optimizer = optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -219,7 +173,7 @@ def train():
 
     print(f"{'Epoch':>6} | {'Train Loss':>10} | {'Train Acc':>9} | "
           f"{'Val Loss':>8} | {'Val Acc':>7} | {'LR':>8} | {'Time':>6}")
-    print("─" * 65)
+    print("-" * 65)
 
     for epoch in range(1, CONFIG["freeze_epochs"] + 1):
         t0 = time.time()
@@ -240,18 +194,15 @@ def train():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             _save_checkpoint(model, optimizer, epoch, val_loss, val_acc, CONFIG)
-            print(f"         ✅ Checkpoint kaydedildi (val_loss={val_loss:.4f}) [Faz 1]")
+            print(f"         Checkpoint kaydedildi (val_loss={val_loss:.4f}) [Faz 1]")
 
-    # ─────────────────────────────────────────
-    #  FAZ 2 — Tüm model açılır, düşük lr ile ince ayar
-    # ─────────────────────────────────────────
     print("\n" + "=" * 65)
-    print(f"FAZ 2: Tüm model açıldı — {CONFIG['epochs'] - CONFIG['freeze_epochs']} epoch")
+    print(f"FAZ 2: Tum model acildi — {CONFIG['epochs'] - CONFIG['freeze_epochs']} epoch")
     print("=" * 65)
 
     model.unfreeze_all()
     trainable_p2 = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Eğitilebilir parametre: {trainable_p2:,}\n")
+    print(f"  Egitilebilir parametre: {trainable_p2:,}\n")
 
     # Faz 2 için yeni optimizer — backbone parametreleri için moment state sıfırdan başlar
     optimizer = optim.Adam(
@@ -266,7 +217,7 @@ def train():
 
     print(f"{'Epoch':>6} | {'Train Loss':>10} | {'Train Acc':>9} | "
           f"{'Val Loss':>8} | {'Val Acc':>7} | {'LR':>8} | {'Time':>6}")
-    print("─" * 65)
+    print("-" * 65)
 
     for epoch in range(CONFIG["freeze_epochs"] + 1, CONFIG["epochs"] + 1):
         t0 = time.time()
@@ -288,22 +239,20 @@ def train():
             best_val_loss = val_loss
             patience_counter = 0
             _save_checkpoint(model, optimizer, epoch, val_loss, val_acc, CONFIG)
-            print(f"         ✅ Checkpoint kaydedildi (val_loss={val_loss:.4f}) [Faz 2]")
+            print(f"         Checkpoint kaydedildi (val_loss={val_loss:.4f}) [Faz 2]")
         else:
             patience_counter += 1
             if patience_counter >= CONFIG["patience"]:
-                print(f"\n⏹️  Early stopping: {CONFIG['patience']} epoch iyileşme yok.")
+                print(f"\nEarly stopping: {CONFIG['patience']} epoch iyilesme yok.")
                 break
 
-    print("─" * 65)
-    print(f"\n🏁 Eğitim tamamlandı!")
+    print("-" * 65)
+    print(f"\nEgitim tamamlandi!")
     print(f"   En iyi val_loss : {best_val_loss:.4f}")
     print(f"   Checkpoint      : {CONFIG['checkpoint_dir']}\\best_model.pt")
 
     save_plots(train_losses, val_losses, train_accs, val_accs, CONFIG["plots_dir"])
 
-
-# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     import multiprocessing

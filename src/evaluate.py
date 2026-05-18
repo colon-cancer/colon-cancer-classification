@@ -1,13 +1,3 @@
-"""
-evaluate.py — Test Seti Değerlendirme
-======================================
-Yükler  : outputs/checkpoints/best_model.pt
-Hesaplar: Accuracy, Confusion Matrix, Per-class F1
-Kaydeder: outputs/plots/confusion_matrix.png
-          outputs/plots/per_class_f1.png
-          outputs/plots/classification_report.txt
-"""
-
 import sys
 import os
 from pathlib import Path
@@ -25,23 +15,14 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-# src/ içindeyiz, dataset ve model doğrudan import edilebilir
 from dataset import get_dataloaders, CLASS_NAMES
 from model import EfficientCancerNet
-
-# ─────────────────────────────────────────────
-#  AYARLAR
-# ─────────────────────────────────────────────
 
 CHECKPOINT_PATH = Path(__file__).parent.parent / "outputs" / "checkpoints" / "best_model.pt"
 PLOTS_DIR       = Path(__file__).parent.parent / "outputs" / "plots"
 BATCH_SIZE      = 64
 NUM_WORKERS     = 0   # Windows'ta güvenli
 
-
-# ─────────────────────────────────────────────
-#  MODEL YÜKLEME
-# ─────────────────────────────────────────────
 
 def load_model(checkpoint_path: Path, device: torch.device) -> EfficientCancerNet:
     if not checkpoint_path.exists():
@@ -63,16 +44,12 @@ def load_model(checkpoint_path: Path, device: torch.device) -> EfficientCancerNe
     return model
 
 
-# ─────────────────────────────────────────────
-#  INFERENCE
-# ─────────────────────────────────────────────
-
 def run_inference(model: EfficientCancerNet, test_loader, device: torch.device):
     all_preds  = []
     all_labels = []
 
-    total   = len(test_loader.dataset)
-    done    = 0
+    total = len(test_loader.dataset)
+    done  = 0
 
     with torch.no_grad():
         for images, labels in test_loader:
@@ -85,23 +62,16 @@ def run_inference(model: EfficientCancerNet, test_loader, device: torch.device):
             done += len(labels)
             print(f"  İlerleme : {done:>6,} / {total:,}", end="\r")
 
-    print()  # satır sonu
+    print()
     return np.array(all_labels), np.array(all_preds)
 
 
-# ─────────────────────────────────────────────
-#  CONFUSION MATRIX PLOTU
-# ─────────────────────────────────────────────
-
 def plot_confusion_matrix(y_true, y_pred, save_path: Path):
     cm = confusion_matrix(y_true, y_pred)
-
-    # Satır normalize (recall per class)
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
 
-    # — Ham sayılar —
     sns.heatmap(
         cm,
         annot=True,
@@ -118,7 +88,6 @@ def plot_confusion_matrix(y_true, y_pred, save_path: Path):
     axes[0].tick_params(axis="x", rotation=45)
     axes[0].tick_params(axis="y", rotation=0)
 
-    # — Normalize (%) —
     sns.heatmap(
         cm_norm,
         annot=True,
@@ -143,10 +112,6 @@ def plot_confusion_matrix(y_true, y_pred, save_path: Path):
     print(f"  Kaydedildi: {save_path}")
 
 
-# ─────────────────────────────────────────────
-#  PER-CLASS F1 BAR CHART
-# ─────────────────────────────────────────────
-
 def plot_per_class_f1(y_true, y_pred, save_path: Path):
     f1_scores = f1_score(y_true, y_pred, average=None, labels=list(range(9)))
     macro_f1  = f1_score(y_true, y_pred, average="macro")
@@ -157,7 +122,6 @@ def plot_per_class_f1(y_true, y_pred, save_path: Path):
     fig, ax = plt.subplots(figsize=(11, 5))
     bars = ax.bar(CLASS_NAMES, f1_scores, color=colors, edgecolor="white", linewidth=0.8)
 
-    # Değer etiketleri
     for bar, score in zip(bars, f1_scores):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
@@ -169,7 +133,6 @@ def plot_per_class_f1(y_true, y_pred, save_path: Path):
             fontweight="bold",
         )
 
-    # Makro F1 referans çizgisi
     ax.axhline(macro_f1, color="#1f77b4", linestyle="--", linewidth=1.5,
                label=f"Makro F1 = {macro_f1:.3f}")
     ax.axhline(weighted_f1, color="#ff7f0e", linestyle=":", linewidth=1.5,
@@ -191,10 +154,6 @@ def plot_per_class_f1(y_true, y_pred, save_path: Path):
     return f1_scores, macro_f1, weighted_f1
 
 
-# ─────────────────────────────────────────────
-#  RAPOR KAYDETME
-# ─────────────────────────────────────────────
-
 def save_report(y_true, y_pred, accuracy, save_path: Path):
     report = classification_report(
         y_true, y_pred,
@@ -210,36 +169,27 @@ def save_report(y_true, y_pred, accuracy, save_path: Path):
     print(f"  Kaydedildi: {save_path}")
 
 
-# ─────────────────────────────────────────────
-#  ANA AKIŞ
-# ─────────────────────────────────────────────
-
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"\nDevice    : {device}")
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Model yükle
     print("\nModel yükleniyor...")
     model = load_model(CHECKPOINT_PATH, device)
 
-    # Test loader al
     print("\nTest seti hazırlanıyor...")
     _, _, test_loader = get_dataloaders(batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     print(f"  Test örnekleri: {len(test_loader.dataset):,}")
 
-    # Inference
     print("\nInference çalışıyor...")
     y_true, y_pred = run_inference(model, test_loader, device)
 
-    # Metrikler
     accuracy = accuracy_score(y_true, y_pred)
     print(f"\n{'='*50}")
     print(f"  Test Accuracy : {accuracy:.4f}  ({accuracy*100:.2f}%)")
     print(f"{'='*50}")
 
-    # Plotlar
     print("\nPlotlar oluşturuluyor...")
     plot_confusion_matrix(
         y_true, y_pred,
@@ -254,17 +204,15 @@ def main():
         save_path=PLOTS_DIR / "classification_report.txt",
     )
 
-    # Konsol özeti
-    print(f"\n{'─'*42}")
-    print(f"  {'Sınıf':<12} F1 Skoru")
-    print(f"{'─'*42}")
+    print(f"\n{'-'*42}")
+    print(f"  {'Sinif':<12} F1 Skoru")
+    print(f"{'-'*42}")
     for name, score in zip(CLASS_NAMES, f1_scores):
-        flag = " ⚠" if score < 0.70 else ""
-        print(f"  {name:<12} {score:.4f}{flag}")
-    print(f"{'─'*42}")
+        print(f"  {name:<12} {score:.4f}")
+    print(f"{'-'*42}")
     print(f"  {'Makro F1':<12} {macro_f1:.4f}")
-    print(f"  {'Ağırlıklı F1':<12} {weighted_f1:.4f}")
-    print(f"{'─'*42}")
+    print(f"  {'Agirlikli F1':<12} {weighted_f1:.4f}")
+    print(f"{'-'*42}")
     print(f"\nTüm çıktılar outputs/plots/ klasörüne kaydedildi.\n")
 
 

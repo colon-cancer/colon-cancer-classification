@@ -28,8 +28,9 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 
-# Claude Code settings (may contain tokens)
+# IDE tool settings (may contain tokens)
 .claude/
+CLAUDE.md
 
 # IDE
 .vscode/
